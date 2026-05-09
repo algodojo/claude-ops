@@ -9,11 +9,85 @@ docs/superpowers/specs/2026-05-09-pulumi-up-walkthrough-design.md
 
 from __future__ import annotations
 
+import getpass
 import json
+import subprocess
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+
+# --- I/O helpers ---------------------------------------------------
+
+
+def _isatty() -> bool:
+    return sys.stdout.isatty()
+
+
+def color(text: str, code: str) -> str:
+    """ANSI color wrapper. No-op when stdout is not a TTY (CI logs stay clean)."""
+    if not _isatty():
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
+
+def green(text: str) -> str: return color(text, "32")
+def yellow(text: str) -> str: return color(text, "33")
+def red(text: str) -> str: return color(text, "31")
+def bold(text: str) -> str: return color(text, "1")
+
+
+def banner(text: str) -> None:
+    """Section header. Visually separates phases in the wizard's output."""
+    bar = "─" * max(len(text) + 4, 60)
+    print(f"\n{bold(bar)}")
+    print(f"  {bold(text)}")
+    print(f"{bold(bar)}\n")
+
+
+def prompt(label: str, *, secret: bool = False) -> str:
+    """Single prompt with secret/non-secret routing.
+
+    Strips trailing whitespace. Empty input is returned as "" — caller
+    decides whether that's OK.
+    """
+    text = f"  {label}: "
+    raw = getpass.getpass(text) if secret else input(text)
+    return raw.strip()
+
+
+class PulumiError(RuntimeError):
+    """A `pulumi ...` invocation exited non-zero. Caller decides whether fatal."""
+
+
+def run_pulumi(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a `pulumi ...` command.
+
+    `capture=True` collects stdout/stderr (used for read-only commands like
+    `whoami`, `stack ls`, `config get` where we branch on the value).
+    `capture=False` streams them to the user's terminal (used for write
+    commands like `stack init`, `config set` where the user benefits from
+    seeing Pulumi's own messages directly).
+
+    `check=True` raises PulumiError on non-zero exit. Callers that need to
+    branch on exit code (e.g. `pulumi whoami` failing means "not logged in")
+    pass `check=False` and inspect `.returncode`.
+    """
+    full = ["pulumi", *args]
+    result = subprocess.run(
+        full,
+        capture_output=capture,
+        text=capture,  # only meaningful when capturing
+        check=False,
+    )
+    if check and result.returncode != 0:
+        raise PulumiError(f"`{' '.join(full)}` exited {result.returncode}")
+    return result
+
+
+# --- DO token validation -------------------------------------------
 
 
 class InvalidToken(Exception):
