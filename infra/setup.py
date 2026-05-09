@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -256,3 +257,69 @@ def check_prereqs() -> None:
         print("    Install: https://tailscale.com/download")
     else:
         print(green("  ✓ tailscale"))
+
+
+# --- phase 2: backend ----------------------------------------------
+
+
+def ensure_backend() -> None:
+    """Detect or set up a Pulumi backend.
+
+    `pulumi whoami` doubles as our "is the CLI usable / are you logged in?"
+    check. If it succeeds, we're done. Otherwise we offer cloud (the user
+    runs `pulumi login` themselves in a separate terminal — the cloud login
+    flow opens a browser and isn't worth wrapping) or local-with-passphrase
+    (we set PULUMI_CONFIG_PASSPHRASE in our own env so the wizard's later
+    `pulumi config set` calls work, then echo the passphrase once with a
+    "save this" warning so the user can put it in a password manager).
+    """
+    banner("Phase 2 — Pulumi backend")
+    result = run_pulumi("whoami", capture=True, check=False)
+    if result.returncode == 0:
+        who = result.stdout.strip()
+        print(green(f"  ✓ Logged in as: {who}"))
+        return
+
+    print("  You are not logged into a Pulumi backend.")
+    print("  Choose one:")
+    print("    [c] Pulumi Cloud (recommended — free for individuals)")
+    print("    [l] Local backend with passphrase-encrypted secrets")
+    while True:
+        choice = input("  [c]/[l]? ").strip().lower()
+        if choice in ("c", "l"):
+            break
+
+    if choice == "c":
+        print()
+        print("  In a separate terminal, run:")
+        print(bold("    pulumi login"))
+        print()
+        print("  Complete the browser flow, then come back here.")
+        input("  Press enter once you're logged in. ")
+        recheck = run_pulumi("whoami", capture=True, check=False)
+        if recheck.returncode != 0:
+            print(red("  pulumi whoami still fails. Aborting."))
+            print("  Re-run `uv run python setup.py` once login succeeds.")
+            sys.exit(1)
+        print(green(f"  ✓ Logged in as: {recheck.stdout.strip()}"))
+        return
+
+    # local backend
+    print()
+    print("  The local backend encrypts stack secrets with a passphrase.")
+    print("  Pick something strong — losing it means losing access to the")
+    print("  encrypted stack values.")
+    passphrase = prompt("Passphrase", secret=True)
+    if not passphrase:
+        print(red("  Empty passphrase — refusing to continue."))
+        sys.exit(1)
+    os.environ["PULUMI_CONFIG_PASSPHRASE"] = passphrase
+    run_pulumi("login", "--local")
+    print()
+    print(yellow("  IMPORTANT — save this passphrase NOW:"))
+    print(f"    {bold(passphrase)}")
+    print()
+    print("  You must `export PULUMI_CONFIG_PASSPHRASE='<value>'` in any")
+    print("  shell where you run `pulumi preview` / `pulumi up`. The wizard")
+    print("  will not display this passphrase again.")
+    input("  Press enter once you've saved it. ")
