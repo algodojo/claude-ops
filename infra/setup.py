@@ -435,3 +435,56 @@ def configure_all_keys() -> None:
     banner("Phase 4 — Stack config")
     for spec in CONFIG_KEYS:
         configure_key(spec)
+
+
+# --- phase 5 + 6: ACL + done ---------------------------------------
+
+
+def _phase5_acl(tailnet: str, tag: str = "tag:claude-ops") -> None:
+    banner("Phase 5 — Tailscale ACL")
+    print_acl_snippet(tailnet=tailnet, tag=tag)
+    input("\n  Press enter once you've saved the ACL. ")
+
+
+def print_next_steps() -> None:
+    banner("Done")
+    print(green("  Stack `dev` is configured."))
+    print()
+    print("  Next steps (run from the `infra/` directory):")
+    print(f"    {bold('pulumi preview')}    inspect the diff")
+    print(f"    {bold('pulumi up')}         provision")
+    print(f"    {bold('tailscale ssh claude@claude-ops')}    reach the droplet")
+    print()
+    print("  To graduate to a `prod` stack:")
+    print("    - Pin a snapshot ID:  pulumi config set image <snap-id>")
+    print("    - Consider Pulumi ESC for centrally-rotatable secrets.")
+    print("    See README §Production workflow.")
+
+
+# --- entry ---------------------------------------------------------
+
+
+def main() -> int:
+    try:
+        banner("claude-ops setup wizard (dev stack)")
+        check_prereqs()
+        ensure_backend()
+        ensure_stack("dev")
+        configure_all_keys()
+        # Pull tailnet back out of pulumi config to render the ACL snippet
+        # accurately (handles the case where the user kept an existing value).
+        tailnet = _get_existing("tailscale:tailnet") or "<your-tailnet>"
+        _phase5_acl(tailnet=tailnet)
+        print_next_steps()
+        return 0
+    except KeyboardInterrupt:
+        print()
+        print(red("  Aborted."))
+        return 130
+    except PulumiError as e:
+        print(red(f"  pulumi failed: {e}"))
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
