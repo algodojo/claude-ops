@@ -1,0 +1,15 @@
+[project]
+name = "claude-ops"
+version = "0.1.0"
+description = "Provisions a remote Claude Code workstation on DigitalOcean, accessible only via Tailscale."
+requires-python = ">=3.11"
+dependencies = [
+    "pulumi>=3.150,<4",
+    "pulumi-digitalocean>=4.40,<5",
+    "pulumi-tailscale>=0.18,<1",
+    "jinja2>=3.1,<4",
+]
+
+[tool.uv]
+# This is an application (consumed by `pulumi up`), not a library to publish.
+package = false

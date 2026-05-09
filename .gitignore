@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Pulumi: stack configs (Pulumi.<stack>.yaml) MAY contain encrypted secrets
+# and SHOULD be committed. Local backend state should not. The per-project
+# venv is already covered by the .venv/ pattern above.
+**/.pulumi/
+
+# uv: pyproject.toml AND uv.lock are committed. The venv (.venv/) is not.
+# Don't commit a generated requirements.txt — pyproject.toml + uv.lock are
+# the source of truth.
+requirements.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local secrets — should never exist, but defense in depth
+.env
+.env.*
+*.pem
+*.key
