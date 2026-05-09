@@ -27,6 +27,16 @@ def test_only_tailnet_is_non_secret():
     }
 
 
+def test_only_do_token_has_a_validator():
+    validators = {k.key: k.validator is not None for k in CONFIG_KEYS}
+    assert validators == {
+        "digitalocean:token": True,
+        "tailscale:oauth_client_id": False,
+        "tailscale:oauth_client_secret": False,
+        "tailscale:tailnet": False,
+    }
+
+
 def test_config_key_is_a_dataclass_with_label():
     """label is the human-readable string shown in prompts."""
     do = next(k for k in CONFIG_KEYS if k.key == "digitalocean:token")

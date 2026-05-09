@@ -9,8 +9,50 @@ docs/superpowers/specs/2026-05-09-pulumi-up-walkthrough-design.md
 
 from __future__ import annotations
 
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+
+class InvalidToken(Exception):
+    """The DO token unambiguously failed authentication (HTTP 401)."""
+
+
+class NetworkError(Exception):
+    """The DO API was unreachable or returned a non-401 error.
+
+    Caller treats this as fail-soft: the token is accepted with a printed
+    warning rather than refusing to store any credentials over a flaky
+    network.
+    """
+
+
+_DO_ACCOUNT_URL = "https://api.digitalocean.com/v2/account"
+
+
+def validate_do_token(token: str) -> None:
+    """Live-check a DigitalOcean PAT against /v2/account.
+
+    A 401 is unambiguous evidence the token is wrong — raise InvalidToken so
+    the caller can re-prompt. Anything else (5xx, DNS failure, timeout) is
+    ambiguous; raise NetworkError and let the caller decide whether to
+    accept the value with a warning.
+    """
+    req = urllib.request.Request(
+        _DO_ACCOUNT_URL,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status != 200:
+                raise NetworkError(f"DO API returned HTTP {resp.status}")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise InvalidToken("Token did not authenticate (HTTP 401).") from e
+        raise NetworkError(f"DO API returned HTTP {e.code}") from e
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise NetworkError(f"Could not reach DO API: {e}") from e
 
 
 @dataclass(frozen=True)
@@ -31,7 +73,7 @@ class ConfigKey:
 
 # Validators are wired up in later tasks; for now the slot is just None.
 CONFIG_KEYS: list[ConfigKey] = [
-    ConfigKey("digitalocean:token",            "DigitalOcean PAT",                secret=True,  validator=None),
+    ConfigKey("digitalocean:token",            "DigitalOcean PAT",                secret=True,  validator=validate_do_token),
     ConfigKey("tailscale:oauth_client_id",     "Tailscale OAuth client ID",       secret=True,  validator=None),
     ConfigKey("tailscale:oauth_client_secret", "Tailscale OAuth client secret",   secret=True,  validator=None),
     ConfigKey("tailscale:tailnet",             "Tailnet name (e.g. example.com)", secret=False, validator=None),
