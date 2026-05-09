@@ -55,6 +55,42 @@ def validate_do_token(token: str) -> None:
         raise NetworkError(f"Could not reach DO API: {e}") from e
 
 
+def mask_secret(value: str) -> str:
+    """Return a fixed-width mask for display.
+
+    Always 8 dots regardless of the real length — leaking the length of a
+    secret is a small but real signal we don't need to give. Empty strings
+    render as a literal `(unset)` so the user can tell apart "set but
+    masked" from "not set at all".
+    """
+    if value == "":
+        return "(unset)"
+    return "••••••••"
+
+
+_KRS_CHOICES = {"k": "keep", "r": "replace", "s": "skip"}
+
+
+def ask_krs(key: str, masked_existing: str) -> str:
+    """Ask the user [k]eep / [r]eplace / [s]kip for an already-set config key.
+
+    Empty input defaults to "keep" — the safest action when re-running after
+    an interruption. Garbage input re-prompts; we don't raise on the user's
+    typo.
+    """
+    prompt = (
+        f"\n  {key} is already set to {masked_existing}.\n"
+        f"  [K]eep / [r]eplace / [s]kip? "
+    )
+    while True:
+        answer = input(prompt).strip().lower()
+        if answer == "":
+            return "keep"
+        if answer in _KRS_CHOICES:
+            return _KRS_CHOICES[answer]
+        # fall through to re-prompt
+
+
 @dataclass(frozen=True)
 class ConfigKey:
     """One row of the wizard's config-key table.
