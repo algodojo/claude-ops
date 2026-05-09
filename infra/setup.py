@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -228,3 +229,30 @@ CONFIG_KEYS: list[ConfigKey] = [
     ConfigKey("tailscale:oauth_client_secret", "Tailscale OAuth client secret",   secret=True,  validator=None),
     ConfigKey("tailscale:tailnet",             "Tailnet name (e.g. example.com)", secret=False, validator=None),
 ]
+
+
+# --- phase 1: prereqs ----------------------------------------------
+
+
+def check_prereqs() -> None:
+    """Verify the CLIs the wizard depends on are reachable.
+
+    `pulumi` is hard-required — fail with an install hint if missing.
+    `tailscale` is only needed *after* `pulumi up` (to actually reach the
+    box), so we warn rather than fail. `uv` is implicitly present because
+    we ran via `uv run python setup.py`.
+    """
+    banner("Phase 1 — Checking prerequisites")
+    if shutil.which("pulumi") is None:
+        print(red("  pulumi CLI not found on PATH."))
+        print("  Install with: brew install pulumi/tap/pulumi")
+        print("  Or see: https://www.pulumi.com/docs/install/")
+        sys.exit(1)
+    print(green("  ✓ pulumi"))
+
+    if shutil.which("tailscale") is None:
+        print(yellow("  ! tailscale CLI not found on PATH."))
+        print("    You'll need it after `pulumi up` to reach the droplet.")
+        print("    Install: https://tailscale.com/download")
+    else:
+        print(green("  ✓ tailscale"))
