@@ -323,3 +323,36 @@ def ensure_backend() -> None:
     print("  shell where you run `pulumi preview` / `pulumi up`. The wizard")
     print("  will not display this passphrase again.")
     input("  Press enter once you've saved it. ")
+
+
+# --- phase 3: stack ------------------------------------------------
+
+
+def ensure_stack(name: str = "dev") -> None:
+    """Select the named stack, or `pulumi stack init` it if it doesn't exist.
+
+    `pulumi stack ls --json` is the read path. We don't try to be clever
+    about pre-existing-elsewhere errors — if `init` fails (e.g. the stack
+    exists in Pulumi Cloud under another org), we let Pulumi's error
+    surface verbatim and exit. The user then resolves it themselves.
+    """
+    banner(f"Phase 3 — Stack `{name}`")
+    listing = run_pulumi("stack", "ls", "--json", capture=True, check=False)
+    if listing.returncode != 0:
+        # `stack ls` can fail before any stack exists in some pulumi versions.
+        # Treat as "no stacks" and try init.
+        existing: list[str] = []
+    else:
+        try:
+            existing = [s["name"] for s in json.loads(listing.stdout)]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            existing = []
+
+    if name in existing:
+        print(green(f"  ✓ Stack `{name}` already exists; selecting it."))
+        run_pulumi("stack", "select", name)
+        return
+
+    print(f"  Creating stack `{name}`...")
+    run_pulumi("stack", "init", name)
+    print(green(f"  ✓ Stack `{name}` created and selected."))
