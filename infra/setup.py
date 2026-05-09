@@ -356,3 +356,82 @@ def ensure_stack(name: str = "dev") -> None:
     print(f"  Creating stack `{name}`...")
     run_pulumi("stack", "init", name)
     print(green(f"  ✓ Stack `{name}` created and selected."))
+
+
+# --- phase 4: config keys ------------------------------------------
+
+
+_MAX_VALIDATION_RETRIES = 3
+
+
+def _get_existing(key: str) -> Optional[str]:
+    """Return the current value of a Pulumi config key, or None if unset.
+
+    `pulumi config get <key>` exits non-zero when the key is unset, which is
+    Pulumi's normal behavior — we treat it as "not set". For secret keys
+    Pulumi prints the *decrypted* plaintext on success; we use it only to
+    decide "is this set?", never log or echo the captured value.
+    """
+    result = run_pulumi("config", "get", key, capture=True, check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.rstrip("\n")
+
+
+def _set_value(spec: ConfigKey, value: str) -> None:
+    args = ["config", "set"]
+    if spec.secret:
+        args.append("--secret")
+    args.extend([spec.key, value])
+    # capture=True so the value doesn't echo to the terminal even on
+    # success. (`pulumi config set --secret` doesn't echo it, but
+    # `set` without --secret does for non-secret keys; capturing is
+    # uniformly safe.)
+    run_pulumi(*args, capture=True)
+
+
+def configure_key(spec: ConfigKey) -> None:
+    """Walk the user through one config key with [k]/[r]/[s] handling."""
+    existing = _get_existing(spec.key)
+    if existing is not None:
+        masked = mask_secret(existing) if spec.secret else existing
+        choice = ask_krs(spec.key, masked)
+        if choice == "keep":
+            print(green(f"  ✓ Keeping existing {spec.key}."))
+            return
+        if choice == "skip":
+            print(yellow(f"  ! Skipping {spec.key}. `pulumi up` will fail "
+                         f"unless you set it manually."))
+            return
+        # fall through to replace flow
+
+    # ask + (optionally) validate, with retries on InvalidToken
+    attempts = 0
+    while True:
+        value = prompt(spec.label, secret=spec.secret)
+        if not value:
+            print(yellow("  Empty value; please try again."))
+            continue
+        if spec.validator is not None:
+            try:
+                spec.validator(value)
+            except InvalidToken as e:
+                attempts += 1
+                print(red(f"  ✗ {e}"))
+                if attempts >= _MAX_VALIDATION_RETRIES:
+                    print(red(f"  Aborting after {attempts} failed attempts."))
+                    sys.exit(1)
+                continue
+            except NetworkError as e:
+                print(yellow(f"  ! {e}"))
+                print(yellow("    Accepting the value without live validation."))
+        break
+
+    _set_value(spec, value)
+    print(green(f"  ✓ {spec.key} stored."))
+
+
+def configure_all_keys() -> None:
+    banner("Phase 4 — Stack config")
+    for spec in CONFIG_KEYS:
+        configure_key(spec)
