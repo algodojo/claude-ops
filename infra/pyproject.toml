@@ -13,3 +13,11 @@ dependencies = [
 [tool.uv]
 # This is an application (consumed by `pulumi up`), not a library to publish.
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
