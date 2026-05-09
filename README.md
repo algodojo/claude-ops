@@ -70,6 +70,22 @@ pulumi login
 #   pulumi login --local
 ```
 
+## Quick setup (interactive)
+
+For a guided walk-through that prompts for everything `pulumi up` needs:
+
+```bash
+cd infra
+uv run python setup.py
+```
+
+This sets the four required config keys, validates the DigitalOcean token
+(catching a wrong PAT before it costs you a `pulumi up` round-trip),
+and prints the Tailscale ACL snippet you'll need to paste into your tailnet
+policy. Re-runnable — already-set keys can be kept, replaced, or skipped.
+
+For manual setup, follow "Development workflow" below.
+
 ## Development workflow
 
 A `dev` stack is for iterating on the IaC against a real (but disposable) droplet.
