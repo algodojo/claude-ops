@@ -1,6 +1,19 @@
 """Unit tests for pure parts of setup.py."""
 
-from setup import CONFIG_KEYS, ConfigKey, ask_krs, mask_secret
+import json
+import re
+
+from setup import CONFIG_KEYS, ConfigKey, ask_krs, mask_secret, print_acl_snippet
+
+
+def _extract_json_block(captured: str) -> dict:
+    """Pull the first {...} JSON object out of captured stdout.
+
+    The function prints prose around the snippet; we just want the JSON.
+    """
+    match = re.search(r"\{.*\}", captured, re.DOTALL)
+    assert match, f"no JSON block found in:\n{captured}"
+    return json.loads(match.group(0))
 
 
 def test_config_keys_has_four_entries():
@@ -96,3 +109,40 @@ def test_ask_krs_reprompts_on_invalid(monkeypatch):
     answers = iter(["nope", "wat", "r"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
     assert ask_krs("digitalocean:token", "••••••••") == "replace"
+
+
+# --- print_acl_snippet ----------------------------------------------
+
+
+def test_print_acl_snippet_emits_valid_json(capsys):
+    print_acl_snippet(tailnet="example.com", tag="tag:claude-ops")
+    out = capsys.readouterr().out
+    parsed = _extract_json_block(out)
+    assert "tagOwners" in parsed
+    assert "acls" in parsed
+    assert "ssh" in parsed
+
+
+def test_print_acl_snippet_uses_supplied_tag(capsys):
+    print_acl_snippet(tailnet="example.com", tag="tag:custom")
+    out = capsys.readouterr().out
+    parsed = _extract_json_block(out)
+    assert "tag:custom" in parsed["tagOwners"]
+    assert any("tag:custom" in str(rule) for rule in parsed["acls"])
+    assert any("tag:custom" in str(rule) for rule in parsed["ssh"])
+
+
+def test_print_acl_snippet_includes_admin_url(capsys):
+    print_acl_snippet(tailnet="example.com", tag="tag:claude-ops")
+    out = capsys.readouterr().out
+    assert "https://login.tailscale.com/admin/acls" in out
+
+
+def test_print_acl_snippet_uses_email_placeholder(capsys):
+    """src must be a placeholder the user replaces, not their real email."""
+    print_acl_snippet(tailnet="example.com", tag="tag:claude-ops")
+    out = capsys.readouterr().out
+    parsed = _extract_json_block(out)
+    # both acl and ssh blocks should reference the placeholder
+    assert any("your-email@example.com" in str(rule) for rule in parsed["acls"])
+    assert any("your-email@example.com" in str(rule) for rule in parsed["ssh"])

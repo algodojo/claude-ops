@@ -9,6 +9,7 @@ docs/superpowers/specs/2026-05-09-pulumi-up-walkthrough-design.md
 
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -107,7 +108,46 @@ class ConfigKey:
     validator: Optional[Callable[[str], None]] = None
 
 
-# Validators are wired up in later tasks; for now the slot is just None.
+_ACL_PLACEHOLDER_EMAIL = "your-email@example.com"
+_ACL_ADMIN_URL = "https://login.tailscale.com/admin/acls"
+
+
+def print_acl_snippet(tailnet: str, tag: str) -> None:
+    """Print the ACL JSON the user must paste into their tailnet policy.
+
+    Tailnet name is included in the prose; the JSON itself doesn't reference
+    the tailnet (Tailscale's policy file is scoped to one tailnet by
+    construction). The src field uses a placeholder email — we don't try to
+    discover the user's identity, that's their decision.
+    """
+    snippet = {
+        "tagOwners": {tag: ["autogroup:admin"]},
+        "acls": [
+            {
+                "action": "accept",
+                "src": [_ACL_PLACEHOLDER_EMAIL],
+                "dst": [f"{tag}:*"],
+            }
+        ],
+        "ssh": [
+            {
+                "action": "accept",
+                "src": [_ACL_PLACEHOLDER_EMAIL],
+                "dst": [tag],
+                "users": ["claude"],
+            }
+        ],
+    }
+    print(
+        f"\n  Open your tailnet policy editor:\n"
+        f"    {_ACL_ADMIN_URL}\n"
+        f"\n  Merge this into your existing policy (replace "
+        f"{_ACL_PLACEHOLDER_EMAIL!r} with the principal you want to grant):\n"
+    )
+    print(json.dumps(snippet, indent=2))
+    print(f"\n  Tailnet: {tailnet}")
+
+
 CONFIG_KEYS: list[ConfigKey] = [
     ConfigKey("digitalocean:token",            "DigitalOcean PAT",                secret=True,  validator=validate_do_token),
     ConfigKey("tailscale:oauth_client_id",     "Tailscale OAuth client ID",       secret=True,  validator=None),
