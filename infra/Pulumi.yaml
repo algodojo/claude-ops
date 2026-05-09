@@ -1,0 +1,6 @@
+name: claude-ops
+runtime:
+  name: python
+  options:
+    toolchain: uv
+description: Provisions a remote Claude Code workstation on DigitalOcean, accessible only via Tailscale.

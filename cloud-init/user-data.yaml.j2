@@ -1,0 +1,90 @@
+#cloud-config
+# claude-ops user-data — rendered by infra/cloud_init.py on every `pulumi up`.
+#
+# Per AGENTS.md, the only credential allowed in this file is the single-use,
+# ephemeral, tagged Tailscale auth key below. It's consumed on first boot, so
+# leakage of this blob (via the DO metadata service or the DO API) after first
+# boot is bounded — the consumed key cannot re-register a node.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - unattended-upgrades
+  - apt-listchanges
+  - git
+
+users:
+  - name: claude
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    lock_passwd: true
+
+write_files:
+  # Unattended security upgrades with auto-reboot at 03:30 local time.
+  - path: /etc/apt/apt.conf.d/51claude-ops-unattended
+    permissions: "0644"
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "03:30";
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  # SSH hardening: key-only, no root, no passwords, claude user only.
+  # Public SSH is already blocked at the cloud firewall; this is
+  # defense-in-depth on the OS layer for the Tailscale-reachable port.
+  - path: /etc/ssh/sshd_config.d/10-claude-ops.conf
+    permissions: "0644"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+      PrintMotd no
+      AllowUsers claude
+
+runcmd:
+  # Install Tailscale from the official apt repo. Signing key is pinned by
+  # the repo metadata — no `curl | sh` against unpinned URLs.
+  - install -d -m 0755 /usr/share/keyrings
+  - curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+  - curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list -o /etc/apt/sources.list.d/tailscale.list
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y tailscale
+
+  # Bring up Tailscale with the single-use auth key. --ssh enables Tailscale
+  # SSH (tailnet-authenticated, supersedes traditional sshd for normal use).
+  # Tags are baked into the auth key, so --advertise-tags is redundant.
+  - |
+    tailscale up \
+      --authkey='{{ tailscale_auth_key }}' \
+      --hostname='{{ droplet_name }}' \
+      --ssh \
+      --accept-dns=true
+
+  # Defense-in-depth: shred the on-disk copies of user-data so the (consumed)
+  # auth key isn't sitting on the filesystem. The DO API copy is unaffected;
+  # this just means a post-boot exfiltration of /var/lib/cloud doesn't leak it.
+  - shred -u /var/lib/cloud/instance/user-data.txt 2>/dev/null || true
+  - find /var/lib/cloud/instances -name user-data.txt -exec shred -u {} \; 2>/dev/null || true
+
+  # Install Node.js LTS (NodeSource, signed apt repo) and Claude Code.
+  - curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+  - sudo -u claude mkdir -p /home/claude/.npm-global
+  - sudo -u claude npm config set prefix '/home/claude/.npm-global'
+  - sudo -u claude bash -lc 'echo "export PATH=$HOME/.npm-global/bin:$PATH" >> ~/.bashrc'
+  - sudo -u claude bash -lc 'export PATH=$HOME/.npm-global/bin:$PATH && npm install -g @anthropic-ai/claude-code'
+
+  # Apply hardened sshd config and enable security upgrades.
+  - systemctl reload ssh || systemctl reload sshd
+  - systemctl enable --now unattended-upgrades
+
+final_message: |
+  claude-ops droplet ready.
+  From a tailnet-joined device:  tailscale ssh claude@{{ droplet_name }}
